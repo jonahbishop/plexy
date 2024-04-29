@@ -1,0 +1,17 @@
+networks:
+  media-network:
+    external: true
+
+services:
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${FOLDER_FOR_CONFIGS:?err}/portainer:/data
+    ports:
+      - "${WEBUI_PORT_PORTAINER:?err}:9000"
+    networks:
+      media-network:
+        ipv4_address: ${IP_PORTAINER:?err}
