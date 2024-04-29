@@ -1,0 +1,204 @@
+networks:
+  media-network:
+    name: media-network
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+      - subnet: ${DOCKER_SUBNET_MEDIA:?err}
+        gateway: ${DOCKER_GATEWAY_MEDIA:?err}
+  arr-network:
+    name: arr-network
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+      - subnet: ${DOCKER_SUBNET_ARR:?err}
+        gateway: ${DOCKER_GATEWAY_ARR:?err}
+
+services:
+  plex:
+    container_name: plex
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    image: plexinc/pms-docker
+    restart: unless-stopped
+    ports:
+      - 32400:32400/tcp
+      - 8324:8324/tcp
+      - 32469:32469/tcp
+      - 1900:1900/udp
+      - 32410:32410/udp
+      - 32412:32412/udp
+      - 32413:32413/udp
+      - 32414:32414/udp
+    environment:
+      PLEX_UID: ${PUID:?err}
+      PLEX_GID: ${PGID:?err}
+      UMASK: ${UMASK:?err}
+      TZ: ${TIMEZONE:?err}
+      PLEX_CLAIM: $PLEX_CLAIM
+      VERSION: latest
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: all
+    volumes:
+      - ${FOLDER_FOR_CONFIGS:?err}:/config
+      - ${FOLDER_FOR_MEDIA:?err}:/data
+      - ${FOLDER_FOR_TRANSCODE:?err}:/transcode
+    hostname: jonahs-plex
+    networks:
+      media-network:
+        ipv4_address: ${IP_PLEX:?err}
+
+###########################################################################
+###########################################################################
+##
+##  Docker Compose File: Sonarr (LinuxServer.io)
+##  Function: Series Library Manager (TV Shows)
+##
+##  Documentation: https://docs.linuxserver.io/images/docker-sonarr
+##
+###########################################################################
+###########################################################################
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    restart: unless-stopped
+    volumes:
+      - ${FOLDER_FOR_CONFIGS:?err}/sonarr:/config
+      - ${FOLDER_FOR_MEDIA:?err}:/data
+    environment:
+      - PUID=${PUID:?err}
+      - PGID=${PGID:?err}
+      - TZ=${TIMEZONE:?err}
+      - DOCKER_MODS=ghcr.io/gilbn/theme.park:sonarr
+      - TP_THEME=${TP_THEME:?err}
+    # network_mode: "service:gluetun"
+    networks:
+      arr-network:
+        ipv4_address: ${IP_SONARR:?err}
+    ports:
+     - "${WEBUI_PORT_SONARR:?err}:8989"             # Configured in Gluetun VPN container
+
+###########################################################################
+###########################################################################
+##
+##    Docker Compose File: SWAG (LinuxServer.io)
+##    Function: Reverse proxy with Certbot, for Let's Encrypt / ZeroSSL
+##
+##    Documentation: https://docs.linuxserver.io/general/swag
+##    https://www.linuxserver.io/blog/zero-trust-hosting-and-reverse-proxy-via-cloudflare-swag-and-authelia
+##
+###########################################################################
+###########################################################################
+  swag:
+    image: lscr.io/linuxserver/swag:latest
+    container_name: swag
+    cap_add:
+      - NET_ADMIN
+    restart: unless-stopped
+    volumes:
+      - ${FOLDER_FOR_CONFIGS:?err}/swag:/config
+    ports:
+      - ${REVERSE_PROXY_PORT_HTTP:?err}:80
+      - ${REVERSE_PROXY_PORT_HTTPS:?err}:443
+    environment:
+      - PUID=${PUID:?err}
+      - PGID=${PGID:?err}
+      - UMASK=${UMASK:?err}
+      - TZ=${TIMEZONE:?err}
+      - URL=${URL:?err}
+      - SUBDOMAINS=${SUBDOMAINS}
+      - VALIDATION=${VALIDATION:?err}
+      - DNSPLUGIN=${DNSPLUGIN}
+      - PROPAGATION=${PROPAGATION}
+      - DUCKDNSTOKEN=${DUCKDNSTOKEN}
+      - EMAIL=${EMAIL}
+      - ONLY_SUBDOMAINS=${ONLY_SUBDOMAINS}
+      - EXTRA_DOMAINS=${EXTRA_DOMAINS}
+      - STAGING=${STAGING}
+# NOTE: SWAG MUST NOT connect to the Gluetun VPN container
+    networks:
+      - media-network
+
+  tautulli:
+    image: lscr.io/linuxserver/tautulli:latest
+    container_name: tautulli
+    environment:
+      - PUID=${PUID:?err}
+      - PGID=${PGID:?err}
+      - TZ=${TIMEZONE:?err}
+    volumes:
+      - ${FOLDER_FOR_CONFIGS:?err}/tautulli:/config
+      # - ${FOLDER_FOR_CERT:?err}:/config/certs
+    ports:
+      - ${WEBUI_PORT_TAUTULLI:?err}:8181
+    restart: unless-stopped
+    networks:
+      media-network:
+        ipv4_address: ${IP_TAUTULLI:?err}
+
+###########################################################################
+###########################################################################
+##
+##  Docker Compose File: qBittorrent (LinuxServer.io)
+##  Function: Torrent Download Client
+##
+##  Documentation: https://docs.linuxserver.io/images/docker-qbittorrent
+##
+###########################################################################
+###########################################################################
+  qbittorrent:
+      image: lscr.io/linuxserver/qbittorrent:latest
+      container_name: qbittorrent
+      restart: unless-stopped
+      volumes:
+        - ${FOLDER_FOR_CONFIGS:?err}/qbittorrent:/config
+        - ${FOLDER_FOR_MEDIA:?err}:/data
+      environment:
+        - PUID=${PUID:?err}
+        - PGID=${PGID:?err}
+        - UMASK=${UMASK:?err}
+        - TZ=${TIMEZONE:?err}
+        - WEBUI_PORT=${WEBUI_PORT_QBITTORRENT:?err}
+        - DOCKER_MODS=ghcr.io/gilbn/theme.park:qbittorrent
+        - TP_THEME=${TP_THEME:?err}
+      ports:
+      - ${WEBUI_PORT_QBITTORRENT:?err}:8200
+      networks:
+        arr-network:
+          ipv4_address: ${IP_QBITTORRENT:?err}
+
+###########################################################################
+###########################################################################
+##
+##  Docker Compose File: Prowlarr (LinuxServer.io)
+##  Function: Indexer and Search Manager
+##
+##  Documentation: https://docs.linuxserver.io/images/docker-prowlarr
+##
+###########################################################################
+###########################################################################
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:develop
+    container_name: prowlarr
+    restart: unless-stopped
+    volumes:
+      - ${FOLDER_FOR_CONFIGS:?err}/prowlarr:/config
+    environment:
+      - PUID=${PUID:?err}
+      - PGID=${PGID:?err}
+      - TZ=${TIMEZONE:?err}
+      - DOCKER_MODS=ghcr.io/gilbn/theme.park:prowlarr
+      - TP_THEME=${TP_THEME:?err}
+    # network_mode: "service:gluetun"
+    networks:
+      arr-network:
+        ipv4_address: ${IP_PROWLARR:?err}
+    ports:
+     - "${WEBUI_PORT_PROWLARR:?err}:9696"             # Configured in Gluetun VPN container
